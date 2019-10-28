@@ -72,8 +72,6 @@ def train_job(dataset_path=None, training_split=0.9, logging_period=1, use_tenso
     end_time = time.time()
     print('Dataset loaded in {:.3f} s'.format(end_time - start_time))
 
-    logger = Logger(period=logging_period, use_tensorboard=use_tensorboard, model_save_path=model_path)
-
     # TODO fix: what if device is explicitly set to torch.device('cpu') ?
     device = device if device is not None else (torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     if torch.cuda.is_available():
@@ -81,6 +79,8 @@ def train_job(dataset_path=None, training_split=0.9, logging_period=1, use_tenso
 
     resnet = torchvision.models.resnet18(pretrained=True)
     resnet.fc = nn.Linear(resnet.fc.in_features, len(full_dataset.class_labels))
+
+    logger = Logger(period=logging_period, use_tensorboard=use_tensorboard, model_save_path=model_path, model=resnet)
 
     if model_path is not None and os.path.exists(model_path):
         print("Loading model from {}".format(model_path))
