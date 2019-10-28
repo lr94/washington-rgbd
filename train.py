@@ -84,7 +84,7 @@ def train_job(dataset_path=None, training_split=0.9, logging_period=1, use_tenso
 
     if model_path is not None and os.path.exists(model_path):
         print("Loading model from {}".format(model_path))
-        resnet.load_state_dic(torch.load(model_path))
+        resnet.load_state_dict(torch.load(model_path))
         print("Model loaded")
 
     train(resnet, training_set, test_set, epochs, batch_size=batch_size, lr=lr, momentum=momentum, nesterov=nesterov,
