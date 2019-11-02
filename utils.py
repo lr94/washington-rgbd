@@ -2,7 +2,7 @@ import os
 import time
 from torch.hub import tqdm
 from torch.nn import Module
-from torch import save, is_tensor
+from torch import save, is_tensor, rand
 
 # Tensorboard causes a lot of "FutureWarning", let's disable them
 import warnings
@@ -31,7 +31,8 @@ def measure(function):
 
 
 class Logger:
-    def __init__(self, period=1, use_tensorboard=False, model: Module = None, model_save_path=None):
+    def __init__(self, period=1, use_tensorboard=False, model: Module = None, model_save_path=None, log_file=None,
+                 input_shape=(1, 3, 224, 224)):
         """
         :param period:              Number of batches between each update
         :param use_tensorboard:     Whether to enable Tensorboard logging
@@ -45,8 +46,19 @@ class Logger:
         self.tensorboard = use_tensorboard
         if use_tensorboard:
             self.writer = SummaryWriter(flush_secs=5)
+
+            # Is this necessary?
+            input_shape = list(input_shape)
+            input_shape.insert(0, 1)
+            input_shape = tuple(input_shape)
+
+            dummy_input = rand(input_shape)
+            self.writer.add_graph(model, dummy_input)
+            self.writer.flush()
+
         self.step_counter = 0
         self.test_counter = 0
+        self.log_file = log_file
 
         self.counter = 0
         self._t = time.time()
@@ -60,7 +72,7 @@ class Logger:
         self._t = time.time()
         self.counter = 0
 
-    def __call__(self, epoch, batch_index, samples, batches, loss, batch_size):
+    def __call__(self, epoch, batch_index, samples, batches, loss, batch_size, accuracy):
         """
         Update training logs
         :param epoch:                   Current epoch
@@ -81,14 +93,16 @@ class Logger:
             loss = loss.item()
 
         speed = (self.period * batch_size) / (t2 - self._t)
-        print("Epoch {} ({:6} / {:6}, {:6.3f} %) Train loss: {:9.6f} Speed: {:8.3f} samples/s".format(
-            epoch, batch_index * batch_size, samples, batch_index / batches * 100.,
-            loss, speed
-        ))
+        self._print("Epoch {} ({:6} / {:6}, {:7.3f} %) Train loss: {:9.6f} Train accuracy: {:7.3f} Speed: {:8.3f} "
+                    "samples/s".format(epoch, batch_index * batch_size, samples, batch_index / batches * 100.,
+                                       loss, accuracy * 100., speed)
+                    , step=self.step_counter
+                    )
 
         if self.tensorboard:
             self.writer.add_scalar('train/loss', loss, self.step_counter)
             self.writer.add_scalar('train/speed', speed, self.step_counter)
+            self.writer.add_scalar('train/accuracy', accuracy * 100., self.step_counter)
         self.step_counter += 1
 
         self._t = t2
@@ -122,7 +136,7 @@ class Logger:
             self.writer.add_scalar('test/accuracy', accuracy, self.test_counter)
             self.writer.add_scalar('test/loss', loss, self.test_counter)
         self.test_counter += 1
-        print("Accuracy: {:6.3f} % ({:6} / {:6}) Test loss: {:9.6f}".format(accuracy, correct, total, loss))
+        self._print("Accuracy: {:7.3f} % ({:6} / {:6}) Test loss: {:9.6f}".format(accuracy, correct, total, loss))
 
     def start_epoch(self, epoch, epochs):
         """
@@ -131,9 +145,9 @@ class Logger:
         :param epochs:      Total number of epochs
         """
 
-        print("Epoch {} / {}".format(epoch, epochs))
+        self._print("Epoch {} / {}".format(epoch, epochs))
 
-    def end_epoch(self, epoch):
+    def end_epoch(self, epoch, loss=-1., optimizer=None):
         """
         To be called after the end of each epoch: saves the model and removes the old one (only after the new one has
         been saved)
@@ -141,13 +155,32 @@ class Logger:
         """
 
         if self.model is not None and self.model_save_path is not None:
-            print("Saving model...")
+            self._print("Saving model...")
             old = None
             if os.path.exists(self.model_save_path) and os.path.isfile(self.model_save_path):
                 old = self.model_save_path + ".old"
                 os.rename(self.model_save_path, old)
 
-            save(self.model.state_dict(), self.model_save_path)
-            print("Model saved")
+            data = {
+                'm_state_dict': self.model.state_dict(),
+                'o_state_dict': optimizer.state_dict(),
+                'epoch': epoch,
+                'loss': loss
+            }
+            save(data, self.model_save_path)
+            self._print("Model saved")
             if old is not None:
                 os.remove(old)
+
+    def _print(self, *args, step=None):
+        print(*args)
+
+        log_line = ''.join(map(str, args))
+
+        if self.tensorboard:
+            self.writer.add_text('log', log_line, global_step=step)
+
+        if self.log_file is not None:
+            with open(self.log_file, 'a+') as log_file_h:
+                log_file_h.write(log_line + "\n")
+

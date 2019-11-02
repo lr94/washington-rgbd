@@ -23,6 +23,7 @@ def main():
                                                                           "training set")
     parser.add_argument('--logging-period', type=int, default=1, help="Number of batches between log updates")
     parser.add_argument('--tensorboard', action='store_true', help="Enable TensorBoard logging")
+    parser.add_argument('--log-file', default=None, help="Log file")
     parser.add_argument('--batch-size', type=int, default=32, help="Batch size for training, testing and mean/std "
                                                                    "computation")
     parser.add_argument('--learning-rate', type=float, default=0.01, help="Learning rate. Decrease it if increasing "
@@ -43,13 +44,13 @@ def main():
         train_job(dataset_path=args.dataset_root, training_split=args.training_split,
                   logging_period=args.logging_period, use_tensorboard=args.tensorboard, batch_size=args.batch_size,
                   lr=args.learning_rate, momentum=args.momentum, nesterov=args.nesterov, epochs=args.epochs,
-                  model_path=args.model_path)
+                  model_path=args.model_path, log_file=args.log_file)
 
 
 # I'm using a function with a lot of keyword arguments instead of passing directly "parser.parse_args()" because I
 # want to be able to easily call this function from a Jupyter notebook without passing by the entry point main()
 def train_job(dataset_path=None, training_split=0.9, logging_period=1, use_tensorboard=False, batch_size=1, lr=0.01,
-              momentum=0.0001, nesterov=True, device=None, epochs=10, model_path=None):
+              momentum=0.0001, nesterov=True, device=None, epochs=10, model_path=None, log_file=None):
     tr = torchvision.transforms.Compose([
         torchvision.transforms.Resize(256),
         torchvision.transforms.RandomCrop(224),
@@ -80,31 +81,44 @@ def train_job(dataset_path=None, training_split=0.9, logging_period=1, use_tenso
     resnet = torchvision.models.resnet18(pretrained=True)
     resnet.fc = nn.Linear(resnet.fc.in_features, len(full_dataset.class_labels))
 
-    logger = Logger(period=logging_period, use_tensorboard=use_tensorboard, model_save_path=model_path, model=resnet)
+    logger = Logger(period=logging_period, use_tensorboard=use_tensorboard, model_save_path=model_path, model=resnet,
+                    log_file=log_file, input_shape=training_set[0][0].shape)
 
+    o_sd = None
+    checkpoint_epoch = 0
     if model_path is not None and os.path.exists(model_path):
         print("Loading model from {}".format(model_path))
-        resnet.load_state_dict(torch.load(model_path, map_location=device))
+        data = torch.load(model_path, map_location=device)
+        m_sd = data['m_state_dict']
+        o_sd = data['o_state_dict']
+        checkpoint_epoch = data['epoch']
+        loss = data['loss']
+        resnet.load_state_dict(m_sd)
+
         print("Model loaded")
 
     train(resnet, training_set, test_set, epochs, batch_size=batch_size, lr=lr, momentum=momentum, nesterov=nesterov,
-          device=device, logger=logger)
+          device=device, logger=logger, optimizer_state_dict=o_sd, initial_epoch=checkpoint_epoch + 1)
 
 
 def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, batch_size=64, lr=0.01, momentum=0.0001,
-          nesterov=True, device=None, logger=None):
+          nesterov=True, device=None, logger=None, optimizer_state_dict=None, initial_epoch=1):
     if device is None:
         device = torch.device('cpu')
     model = model.to(device)
 
     opt = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=nesterov)
+    if optimizer_state_dict is not None:
+        opt.load_state_dict(optimizer_state_dict)
 
     training_loader = DataLoader(training_set, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=batch_size)
 
     test(model, test_loader, batch_size=batch_size, device=device, logger=logger)
 
-    for epoch in range(1, epochs + 1):
+    epoch_loss = 0
+
+    for epoch in range(initial_epoch, epochs + 1):
         if logger is not None:
             logger.start_epoch(epoch, epochs)
 
@@ -122,14 +136,19 @@ def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, ba
             loss.backward()
             opt.step()
 
+            predictions = torch.argmax(output_t, dim=1)
+            correct = torch.sum(predictions == target_t).item()
+            total = predictions.shape[0]
+
             if logger is not None:
                 logger(epoch=epoch, batch_index=batch_i, samples=len(training_set), batches=len(training_loader),
-                       loss=loss.item(), batch_size=batch_size)
+                       loss=loss.item(), batch_size=batch_size, accuracy=correct/total)
+            epoch_loss = loss.item()
 
         test(model, test_loader, batch_size=batch_size, device=device, logger=logger)
 
         if logger is not None:
-            logger.end_epoch(epoch)
+            logger.end_epoch(epoch, epoch_loss, opt)
 
 
 @measure
