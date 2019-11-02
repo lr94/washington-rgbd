@@ -50,3 +50,4 @@ data/
 runs/
 *.pt
 *.pth
+*.log
