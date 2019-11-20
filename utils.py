@@ -2,19 +2,14 @@ import os
 import time
 from torch.hub import tqdm
 from torch.nn import Module
-from torch import save, is_tensor, rand
-
-# Tensorboard causes a lot of "FutureWarning", let's disable them
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-from torch.utils.tensorboard import SummaryWriter
+import torch
 
 
-def measure(function):
+def stopwatch(function):
     """
     This decorator allows to easily measure the execution time of a function:
 
-    @measure
+    @stopwatch
     def function(argument):
         some_object.heavy_computation(argument)
 
@@ -30,9 +25,36 @@ def measure(function):
     return function_wrapper
 
 
+def get_device(enable_cuda=True, cuda_device_id=None):
+    """
+    Get the device instance (GPU if available and enabled, otherwise CPU)
+
+    :param enable_cuda:         Enable CUDA
+    :param cuda_device_id:      Optionally specify which device to use
+    :return:                    The device instance
+    """
+    if not enable_cuda and cuda_device_id is not None:
+        raise ValueError("Invalid arguments")
+
+    device = torch.device('cpu')
+    device_name = "CPU"
+
+    if enable_cuda and torch.cuda.is_available():
+        device = torch.device('cuda' + (':{}'.format(cuda_device_id) if cuda_device_id is not None else ''))
+        device_name = torch.cuda.get_device_name(device)
+    elif enable_cuda:
+        print("CUDA not available, falling back on CPU")
+
+    print("Device: {}".format(device_name))
+    if device.index is not None:
+        print("Device ID: {}".format(device.index))
+
+    return device
+
+
 class Logger:
-    def __init__(self, period=1, use_tensorboard=False, model: Module = None, model_save_path=None, log_file=None,
-                 input_shape=(1, 3, 224, 224)):
+    def __init__(self, period=1, use_tensorboard=False, tensorboard_logdir=None, model: Module = None,
+                 model_save_path=None, log_file=None, input_shape=(1, 3, 224, 224)):
         """
         :param period:              Number of batches between each update
         :param use_tensorboard:     Whether to enable Tensorboard logging
@@ -44,15 +66,16 @@ class Logger:
         self.model = model
         self.model_save_path = model_save_path
         self.tensorboard = use_tensorboard
+
         if use_tensorboard:
-            self.writer = SummaryWriter(flush_secs=5)
+            # Tensorboard causes a lot of "FutureWarning", let's disable them
+            import warnings
+            warnings.simplefilter(action='ignore', category=FutureWarning)
+            from torch.utils.tensorboard import SummaryWriter
 
-            # Is this necessary?
-            input_shape = list(input_shape)
-            input_shape.insert(0, 1)
-            input_shape = tuple(input_shape)
+            self.writer = SummaryWriter(log_dir=tensorboard_logdir, flush_secs=5)
 
-            dummy_input = rand(input_shape)
+            dummy_input = torch.rand(input_shape).unsqueeze(0)
             self.writer.add_graph(model, dummy_input)
             self.writer.flush()
 
@@ -63,14 +86,6 @@ class Logger:
         self.counter = 0
         self._t = time.time()
         self.pb = None
-
-    def reset_epoch(self):
-        """
-        To be called at the beginning of each epoch to reset the bach counter
-        """
-
-        self._t = time.time()
-        self.counter = 0
 
     def __call__(self, epoch, batch_index, samples, batches, loss, batch_size, accuracy):
         """
@@ -89,7 +104,7 @@ class Logger:
 
         t2 = time.time()
 
-        if is_tensor(loss):
+        if torch.is_tensor(loss):
             loss = loss.item()
 
         speed = (self.period * batch_size) / (t2 - self._t)
@@ -146,8 +161,10 @@ class Logger:
         """
 
         self._print("Epoch {} / {}".format(epoch, epochs))
+        self._t = time.time()
+        self.counter = 0
 
-    def end_epoch(self, epoch, loss=-1., optimizer=None):
+    def end_epoch(self, epoch):
         """
         To be called after the end of each epoch: saves the model and removes the old one (only after the new one has
         been saved)
@@ -156,6 +173,7 @@ class Logger:
 
         if self.model is not None and self.model_save_path is not None:
             self._print("Saving model...")
+            # Rename old model if present, in order to prevent data loss
             old = None
             if os.path.exists(self.model_save_path) and os.path.isfile(self.model_save_path):
                 old = self.model_save_path + ".old"
@@ -163,12 +181,11 @@ class Logger:
 
             data = {
                 'm_state_dict': self.model.state_dict(),
-                'o_state_dict': optimizer.state_dict(),
-                'epoch': epoch,
-                'loss': loss
+                'epoch': epoch
             }
-            save(data, self.model_save_path)
+            torch.save(data, self.model_save_path)
             self._print("Model saved")
+            # New model successfully saved, remove the old one if any
             if old is not None:
                 os.remove(old)
 
@@ -178,9 +195,10 @@ class Logger:
         log_line = ''.join(map(str, args))
 
         if self.tensorboard:
-            self.writer.add_text('log', log_line, global_step=step)
+            # TODO: this does not seem to work well to store and display textual logs, replace with something else
+            # self.writer.add_text('log', log_line, global_step=step)
+            pass
 
         if self.log_file is not None:
             with open(self.log_file, 'a+') as log_file_h:
                 log_file_h.write(log_line + "\n")
-
