@@ -4,11 +4,11 @@ from torch.utils.data import random_split, Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.functional as f
 import torch.optim
-import torchvision.transforms
 import torchvision.models
-import washington
 import argparse
+
 from utils import *
+from loader import init_washington_datasets
 
 
 def main():
@@ -23,32 +23,13 @@ def main():
     nesterov = args.nesterov
     epochs = args.epochs
 
-    tr = torchvision.transforms.Compose([
-        torchvision.transforms.Resize(256),
-        torchvision.transforms.RandomCrop(224),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize([0.5438, 0.5168, 0.5042], [0.2119, 0.2205, 0.2511])
-    ])
-
-    start_time = time.time()
-    print("Loading dataset...")
-    full_dataset = washington.WashingtonDataset(dataset_path, download=True, transform=tr)
-    print("Dataset loaded and normalized")
-    print("\tSamples: {}".format(len(full_dataset)))
-    print("\tClasses: {}".format(len(full_dataset.class_labels)))
-
-    training_size = int(training_split * len(full_dataset))
-    training_set, test_set = random_split(full_dataset, [training_size, len(full_dataset) - training_size])
-    print("\tTraining samples: {}".format(len(training_set)))
-    print("\tTest samples: {}".format(len(test_set)))
-
-    end_time = time.time()
-    print('Dataset loaded in {:.3f} s'.format(end_time - start_time))
+    training_set, test_set = init_washington_datasets(dataset_path, training_split=training_split,
+                                                      normalize=True)
 
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
 
     resnet = torchvision.models.resnet18(pretrained=True)
-    resnet.fc = nn.Linear(resnet.fc.in_features, len(full_dataset.class_labels))
+    resnet.fc = nn.Linear(resnet.fc.in_features, len(training_set.class_labels))
 
     tb_exp = args.tensorboard_exp
     if tb_exp is not None:

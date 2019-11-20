@@ -2,25 +2,15 @@ import argparse
 import tqdm
 import torch
 from torch.utils.data.dataloader import DataLoader
-import torchvision
 
-import washington
 from utils import *
+from loader import init_washington_datasets
 
 
 def main():
     args = parse_args()
 
-    transforms = torchvision.transforms.Compose([
-        torchvision.transforms.Resize(256),
-        torchvision.transforms.RandomCrop(224),
-        torchvision.transforms.ToTensor(),
-    ])
-
-    print("Loading dataset...")
-    full_dataset = washington.WashingtonDataset(args.dataset_root, download=True, transform=transforms)
-    print("Dataset loaded")
-    print("\tSamples: {}".format(len(full_dataset)))
+    full_dataset, _ = init_washington_datasets(args.dataset_root, normalize=False)
 
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
 
