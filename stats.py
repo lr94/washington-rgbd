@@ -10,7 +10,7 @@ from loader import init_washington_datasets
 def main():
     args = parse_args()
 
-    full_dataset, _ = init_washington_datasets(args.dataset_root, normalize=False)
+    full_dataset = init_washington_datasets(args.dataset_root, train_split=args.dataset_split, normalize=False)
 
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
 
@@ -68,9 +68,10 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=64, help="Batch size for mean/std "
                                                                    "computation")
 
-    training_opt_g = parser.add_argument_group(title="Dataset options")
-    training_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset (it must "
+    dataset_opt_g = parser.add_argument_group(title="Dataset options")
+    dataset_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset (it must "
                                                                          "contain the directory \"rgb-dataset\")")
+    dataset_opt_g.add_argument('--dataset-split', help="Dataset split (.txt) to use")
 
     device_opt_g = parser.add_argument_group(title="Device options")
     device_opt_g.add_argument('--disable-cuda', action='store_true', help="Disable GPU acceleration")

@@ -23,8 +23,8 @@ def main():
     nesterov = args.nesterov
     epochs = args.epochs
 
-    training_set, test_set = init_washington_datasets(dataset_path, training_split=training_split,
-                                                      normalize=True)
+    training_set, test_set = init_washington_datasets(dataset_path, train_split=training_split,
+                                                      test_split=args.test_split, normalize=True)
 
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
 
@@ -138,11 +138,11 @@ def parse_args():
         formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=50, width=100)
     )
 
-    training_opt_g = parser.add_argument_group(title="Dataset options")
-    training_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset (it must "
+    dataset_opt_g = parser.add_argument_group(title="Dataset options")
+    dataset_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset (it must "
                                                                          "contain the directory \"rgb-dataset\")")
-    training_opt_g.add_argument('--training-split', type=float, default=0.9, help="Fraction of the dataset to be used "
-                                                                                  "as training set")
+    dataset_opt_g.add_argument('--training-split', help="Dataset split (.txt) to use")
+    dataset_opt_g.add_argument('--test-split', help="Dataset split (.txt) to use for validiation")
 
     logging_opt_g = parser.add_argument_group(title="Logging options")
     logging_opt_g.add_argument('--logging-period', type=int, default=1, help="Number of batches between log updates")
@@ -159,7 +159,7 @@ def parse_args():
     training_opt_g.add_argument('--batch-size', type=int, default=64, help="Batch size for training and testing")
     training_opt_g.add_argument('--learning-rate', type=float, default=0.01, help="Learning rate. Decrease it if "
                                                                                   "increasing batch size")
-    training_opt_g.add_argument('--skip-initial-test', action='store_true', help="Skip test before training")
+    dataset_opt_g.add_argument('--skip-initial-test', action='store_true', help="Skip test before training")
     training_opt_g.add_argument('--epochs', type=int, default=10, help="Number of epochs")
     training_opt_g.add_argument('--momentum', type=float, default=0.0001, help="SGD Momentum")
     training_opt_g.add_argument('--nesterov', action='store_true', help="Enable Nesterov SGD")

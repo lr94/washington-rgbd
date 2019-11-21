@@ -1,10 +1,7 @@
 import time
-import torch
-from torch.utils.data import random_split, Dataset, DataLoader
 import torchvision.transforms
 
 import washington
-import washington.transforms
 
 
 def _init_transforms(normalize=True):
@@ -12,65 +9,40 @@ def _init_transforms(normalize=True):
         torchvision.transforms.RandomVerticalFlip(),
         torchvision.transforms.RandomHorizontalFlip(),
 
-        washington.transforms.TilingResize(256),
+        torchvision.transforms.Resize(256),
         torchvision.transforms.RandomCrop(224),
         torchvision.transforms.ToTensor()
     ])
 
     if normalize:
-        tr.transforms.append(torchvision.transforms.Normalize([0.5195, 0.4924, 0.4778], [0.2376, 0.2442, 0.2720]))
+        # Computed on split "train cut 0"
+        tr.transforms.append(torchvision.transforms.Normalize([0.5506, 0.5224, 0.5090], [0.2105, 0.2216, 0.2536]))
 
     return tr
 
 
-def init_washington_datasets(dataset_root, testset_root=None, training_split=None, normalize=True):
-    """
-    Prepare two datasets (training set and test set). If testset_root is provided the two datasets are the ones
-    present in dataset_root and testset_root, otherwise training_split must be specified and the dataset contained in
-    dataset_root is randomly splitted
-    :param dataset_root:
-    :param testset_root:
-    :param training_split:
-    :param normalize:
-    :return:
-    """
-
-    if testset_root is not None and training_split is not None:
-        raise ValueError("You can't specify both testset_root and training_split")
-
+def init_washington_datasets(dataset_root, train_split, test_split=None, normalize=True):
     tr = _init_transforms(normalize)
+    print(test_split)
 
     start_time = time.time()
     print("Loading dataset...")
-    full_dataset = washington.WashingtonDataset(dataset_root, download=True, transform=tr)
-    print("Dataset loaded and normalized")
-    print("\tSamples: {}".format(len(full_dataset)))
-    print("\tClasses: {}".format(len(full_dataset.class_labels)))
+    train_set = washington.WashingtonDataset(dataset_root, split=train_split, transform=tr)
+    test_set = None
+    if test_split is not None:
+        test_set = washington.WashingtonDataset(dataset_root, split=test_split, transform=tr)
+    print("Dataset loaded")
+    print("\tSamples: {}".format(len(train_set)))
+    print("\tClasses: {}".format(len(train_set.class_labels)))
 
-    if training_split is not None:
-        print("Randomly splitting dataset...")
-        training_size = int(training_split * len(full_dataset))
-        training_set, test_set = random_split(full_dataset, [training_size, len(full_dataset) - training_size])
-        training_set.classes = full_dataset.classes
-        test_set.classes = full_dataset.classes
-        training_set.class_labels = full_dataset.class_labels
-        test_set.class_labels = full_dataset.class_labels
-        training_set.root = full_dataset.root
-        test_set.root = full_dataset.root
-    elif testset_root is not None:
-        print("Loading training set...")
-        training_set = full_dataset
-        test_set = washington.WashingtonDataset(testset_root, download=False, transform=tr)
-    else:
-        training_set = full_dataset
-        test_set = None
-
-    print("\tTraining samples: {}".format(len(training_set)))
-
-    if test_set is not None:
+    print("\tTraining samples: {}".format(len(train_set)))
+    if test_split is not None:
         print("\tTest samples: {}".format(len(test_set)))
 
     end_time = time.time()
     print('Dataset loaded in {:.3f} s'.format(end_time - start_time))
 
-    return training_set, test_set
+    if test_set is None:
+        return train_set
+    else:
+        return train_set, test_set
