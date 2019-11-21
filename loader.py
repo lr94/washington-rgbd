@@ -4,6 +4,7 @@ from torch.utils.data import random_split, Dataset, DataLoader
 import torchvision.transforms
 
 import washington
+import washington.transforms
 
 
 def _init_transforms(normalize=True):
@@ -11,7 +12,7 @@ def _init_transforms(normalize=True):
         torchvision.transforms.RandomVerticalFlip(),
         torchvision.transforms.RandomHorizontalFlip(),
 
-        torchvision.transforms.Resize(256),
+        washington.transforms.TilingResize(256),
         torchvision.transforms.RandomCrop(224),
         torchvision.transforms.ToTensor()
     ])
