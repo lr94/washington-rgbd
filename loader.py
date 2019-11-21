@@ -18,7 +18,7 @@ def _init_transforms(normalize=True):
     ])
 
     if normalize:
-        tr.transforms.append(torchvision.transforms.Normalize([0.5438, 0.5168, 0.5042], [0.2119, 0.2205, 0.2511]))
+        tr.transforms.append(torchvision.transforms.Normalize([0.5195, 0.4924, 0.4778], [0.2376, 0.2442, 0.2720]))
 
     return tr
 
