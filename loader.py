@@ -4,23 +4,6 @@ import torchvision.transforms
 import washington
 
 
-def _init_transforms(normalize=True):
-    tr = torchvision.transforms.Compose([
-        torchvision.transforms.RandomVerticalFlip(),
-        torchvision.transforms.RandomHorizontalFlip(),
-
-        torchvision.transforms.Resize(256),
-        torchvision.transforms.RandomCrop(224),
-        torchvision.transforms.ToTensor()
-    ])
-
-    if normalize:
-        # Computed on split "train cut 0"
-        tr.transforms.append()
-
-    return tr
-
-
 def init_washington_datasets(dataset_root, train_split, test_split=None):
     normalize_transform = torchvision.transforms.Normalize([0.5506, 0.5224, 0.5090], [0.2105, 0.2216, 0.2536])
 

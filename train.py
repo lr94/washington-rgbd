@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import torch
 from torch.utils.data import random_split, Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.functional as f
@@ -24,7 +23,7 @@ def main():
     epochs = args.epochs
 
     training_set, test_set = init_washington_datasets(dataset_path, train_split=training_split,
-                                                      test_split=args.test_split, normalize=True)
+                                                      test_split=args.test_split)
 
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
 
