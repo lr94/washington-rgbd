@@ -10,7 +10,7 @@ from loader import init_washington_datasets
 def main():
     args = parse_args()
 
-    full_dataset = init_washington_datasets(args.dataset_root, train_split=args.dataset_split, normalize=False)
+    full_dataset = init_washington_datasets(args.dataset_root, train_split=args.dataset_split)
 
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
 

@@ -49,11 +49,11 @@ def main():
         print("Model loaded")
 
     train(resnet, training_set, test_set, epochs, batch_size=batch_size, lr=lr, momentum=momentum, nesterov=nesterov,
-          device=device, logger=logger, initial_epoch=checkpoint_epoch + 1, initial_test=not args.skip_initial_test)
+          device=device, logger=logger, initial_epoch=checkpoint_epoch + 1)
 
 
 def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, batch_size=64, lr=0.01, momentum=0.0001,
-          nesterov=True, device=None, logger=None, initial_epoch=1, initial_test=True):
+          nesterov=True, device=None, logger=None, initial_epoch=1):
     if device is None:
         device = torch.device('cpu')
     model = model.to(device)
@@ -63,8 +63,7 @@ def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, ba
     training_loader = DataLoader(training_set, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=batch_size)
 
-    if initial_test:
-        test(model, test_loader, device=device, logger=logger)
+    test(model, test_loader, device=device, logger=logger)
 
     for epoch in range(initial_epoch, epochs + 1):
         if logger is not None:
@@ -90,13 +89,12 @@ def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, ba
                 logger(epoch=epoch, batch_index=batch_i, samples=len(training_set), batches=len(training_loader),
                        loss=loss.item(), batch_size=batch_size, accuracy=correct/total)
 
-        test(model, test_loader, device=device, logger=logger)
+        correct, total, loss = test(model, test_loader, device=device, logger=logger)
 
         if logger is not None:
-            logger.end_epoch(epoch)
+            logger.end_epoch(epoch, accuracy=correct / total, loss=loss)
 
 
-@stopwatch
 def test(model: nn.Module, test_loader: DataLoader, device=None, logger=None):
     if device is not None:
         model = model.to(device)
@@ -106,6 +104,8 @@ def test(model: nn.Module, test_loader: DataLoader, device=None, logger=None):
     correct = 0
     total = 0
     total_loss = 0.
+
+    logger.pb = None
 
     with torch.no_grad():
         for batch_i, (input_t, target_t) in enumerate(test_loader):
@@ -159,7 +159,6 @@ def parse_args():
     training_opt_g.add_argument('--batch-size', type=int, default=64, help="Batch size for training and testing")
     training_opt_g.add_argument('--learning-rate', type=float, default=0.01, help="Learning rate. Decrease it if "
                                                                                   "increasing batch size")
-    dataset_opt_g.add_argument('--skip-initial-test', action='store_true', help="Skip test before training")
     training_opt_g.add_argument('--epochs', type=int, default=10, help="Number of epochs")
     training_opt_g.add_argument('--momentum', type=float, default=0.0001, help="SGD Momentum")
     training_opt_g.add_argument('--nesterov', action='store_true', help="Enable Nesterov SGD")

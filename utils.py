@@ -1,4 +1,5 @@
 import os
+from shutil import copyfile
 import time
 from torch.hub import tqdm
 from torch.nn import Module
@@ -83,6 +84,8 @@ class Logger:
         self.test_counter = 0
         self.log_file = log_file
 
+        self.best_accuracy = 0
+
         self.counter = 0
         self._t = time.time()
         self.pb = None
@@ -97,6 +100,10 @@ class Logger:
         :param loss:                    Current value of loss function
         :param batch_size:              Current batch size
         """
+
+        if self.pb is None:
+            self.pb = tqdm(total=samples, unit=" samples")
+        self.pb.update(batch_size)
 
         self.counter += 1
         if self.counter % self.period != 0:
@@ -143,7 +150,8 @@ class Logger:
         """
 
         if self.pb is not None:
-            self.pb.__exit__(None, None, None)
+            self.pb.close()
+            # self.pb.__exit__(None, None, None)
             self.pb = None
 
         accuracy = correct / total * 100.
@@ -151,7 +159,8 @@ class Logger:
             self.writer.add_scalar('test/accuracy', accuracy, self.test_counter)
             self.writer.add_scalar('test/loss', loss, self.test_counter)
         self.test_counter += 1
-        self._print("Accuracy: {:7.3f} % ({:6} / {:6}) Test loss: {:9.6f}".format(accuracy, correct, total, loss))
+        self._print("Accuracy: {:7.3f} % ({:6} / {:6}) Test loss: {:9.6f}".format(accuracy, correct, total, loss),
+                    stdout=True)
 
     def start_epoch(self, epoch, epochs):
         """
@@ -160,11 +169,14 @@ class Logger:
         :param epochs:      Total number of epochs
         """
 
-        self._print("Epoch {} / {}".format(epoch, epochs))
+        self._print("Epoch {} / {}".format(epoch, epochs), stdout=True)
         self._t = time.time()
         self.counter = 0
+        if self.pb is not None:
+            self.pb.close()
+        self.pb = None
 
-    def end_epoch(self, epoch):
+    def end_epoch(self, epoch, accuracy, loss):
         """
         To be called after the end of each epoch: saves the model and removes the old one (only after the new one has
         been saved)
@@ -172,7 +184,7 @@ class Logger:
         """
 
         if self.model is not None and self.model_save_path is not None:
-            self._print("Saving model...")
+            self._print("Saving model...", stdout=True)
             # Rename old model if present, in order to prevent data loss
             old = None
             if os.path.exists(self.model_save_path) and os.path.isfile(self.model_save_path):
@@ -181,16 +193,28 @@ class Logger:
 
             data = {
                 'm_state_dict': self.model.state_dict(),
-                'epoch': epoch
+                'epoch': epoch,
+
+                'test_accuracy': accuracy,
+                'test_loss': loss
             }
             torch.save(data, self.model_save_path)
-            self._print("Model saved")
+            self._print("Model saved", stdout=True)
             # New model successfully saved, remove the old one if any
             if old is not None:
                 os.remove(old)
 
-    def _print(self, *args, step=None):
-        print(*args)
+            if accuracy > self.best_accuracy:
+                self._print("Best accuracy achieved!", stdout=True)
+                # TODO make it selectable
+                best_path = '.'.join(self.model_save_path.split('.')[:-1]) + '_BEST.pth'
+                copyfile(self.model_save_path, best_path)
+
+                self.best_accuracy = accuracy
+
+    def _print(self, *args, stdout=False, step=None):
+        if stdout:
+            print(*args)
 
         log_line = ''.join(map(str, args))
 

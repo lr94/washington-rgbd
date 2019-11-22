@@ -1,6 +1,5 @@
-from os.path import isdir, isfile, join
+from os.path import isdir, join
 from os import listdir
-from re import match
 import PIL.Image
 
 
