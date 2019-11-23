@@ -1,8 +1,11 @@
+import time
 import os
 from shutil import copyfile
-import time
+
+from argparse import ArgumentParser
+
 from torch.hub import tqdm
-from torch.nn import Module
+from torch.nn import Module, DataParallel
 import torch
 
 
@@ -26,44 +29,15 @@ def stopwatch(function):
     return function_wrapper
 
 
-def get_device(enable_cuda=True, cuda_device_id=None):
-    """
-    Get the device instance (GPU if available and enabled, otherwise CPU)
-
-    :param enable_cuda:         Enable CUDA
-    :param cuda_device_id:      Optionally specify which device to use
-    :return:                    The device instance
-    """
-    if not enable_cuda and cuda_device_id is not None:
-        raise ValueError("Invalid arguments")
-
-    device = torch.device('cpu')
-    device_name = "CPU"
-
-    if enable_cuda and torch.cuda.is_available():
-        device = torch.device('cuda' + (':{}'.format(cuda_device_id) if cuda_device_id is not None else ''))
-        device_name = torch.cuda.get_device_name(device)
-    elif enable_cuda:
-        print("CUDA not available, falling back on CPU")
-
-    print("Device: {}".format(device_name))
-    if device.index is not None:
-        print("Device ID: {}".format(device.index))
-
-    return device
-
-
 class Logger:
-    def __init__(self, period=1, use_tensorboard=False, tensorboard_logdir=None, model: Module = None,
+    def __init__(self, use_tensorboard=False, tensorboard_logdir=None, model: Module = None,
                  model_save_path=None, log_file=None, input_shape=(1, 3, 224, 224)):
         """
-        :param period:              Number of batches between each update
         :param use_tensorboard:     Whether to enable Tensorboard logging
         :param model:               Model
         :param model_save_path:     Path to save model after each epoch
         """
 
-        self.period = period
         self.model = model
         self.model_save_path = model_save_path
         self.tensorboard = use_tensorboard
@@ -77,7 +51,8 @@ class Logger:
             self.writer = SummaryWriter(log_dir=tensorboard_logdir, flush_secs=5)
 
             dummy_input = torch.rand(input_shape).unsqueeze(0)
-            self.writer.add_graph(model, dummy_input)
+            if model is not None and not isinstance(model, DataParallel):
+                self.writer.add_graph(model, dummy_input)
             self.writer.flush()
 
         self.step_counter = 0
@@ -87,6 +62,8 @@ class Logger:
         self.best_accuracy = 0
 
         self.counter = 0
+        self.processed_samples = 0
+        self.last_output_processed_samples = 0
         self._t = time.time()
         self.pb = None
 
@@ -101,33 +78,38 @@ class Logger:
         :param batch_size:              Current batch size
         """
 
+        # Base 1
+        batch_index += 1
+
+        # Init progress bar if not already initialized
         if self.pb is None:
-            self.pb = tqdm(total=samples, unit=" samples")
+            self.pb = tqdm(total=samples, unit=" samples", leave=False)
+        # Update progress bar
         self.pb.update(batch_size)
 
+        # Update batch counter and sample counter
         self.counter += 1
-        if self.counter % self.period != 0:
-            return
+        self.processed_samples += batch_size
 
         t2 = time.time()
 
         if torch.is_tensor(loss):
             loss = loss.item()
 
-        speed = (self.period * batch_size) / (t2 - self._t)
-        self._print("Epoch {} ({:6} / {:6}, {:7.3f} %) Train loss: {:9.6f} Train accuracy: {:7.3f} Speed: {:8.3f} "
-                    "samples/s".format(epoch, batch_index * batch_size, samples, batch_index / batches * 100.,
-                                       loss, accuracy * 100., speed)
-                    , step=self.step_counter
-                    )
+        if batch_index == batches:
+            speed = (self.processed_samples - self.last_output_processed_samples) / (t2 - self._t)
+            self.last_output_processed_samples = self.processed_samples
+            self._print("Epoch {} ({:6} / {:6}, {:7.3f} %) Train loss: {:9.6f} Train accuracy: {:7.3f} Speed: {:8.3f} "
+                        "samples/s".format(epoch, self.processed_samples, samples, batch_index / batches * 100.,
+                                           loss, accuracy * 100., speed), step=self.step_counter)
 
-        if self.tensorboard:
-            self.writer.add_scalar('train/loss', loss, self.step_counter)
-            self.writer.add_scalar('train/speed', speed, self.step_counter)
-            self.writer.add_scalar('train/accuracy', accuracy * 100., self.step_counter)
-        self.step_counter += 1
+            if self.tensorboard:
+                self.writer.add_scalar('train/loss', loss, self.step_counter)
+                self.writer.add_scalar('train/speed', speed, self.step_counter)
+                self.writer.add_scalar('train/accuracy', accuracy * 100., self.step_counter)
+                self.step_counter += 1
 
-        self._t = t2
+            self._t = t2
 
     def log_test_progress(self, processed, total):
         """
@@ -137,7 +119,7 @@ class Logger:
         """
 
         if self.pb is None:
-            self.pb = tqdm(total=total, unit=" samples")
+            self.pb = tqdm(total=total, unit=" samples", leave=False)
 
         self.pb.update(processed - self.pb.n)
 
@@ -172,6 +154,8 @@ class Logger:
         self._print("Epoch {} / {}".format(epoch, epochs), stdout=True)
         self._t = time.time()
         self.counter = 0
+        self.processed_samples = 0
+        self.last_output_processed_samples = 0
         if self.pb is not None:
             self.pb.close()
         self.pb = None
@@ -191,8 +175,9 @@ class Logger:
                 old = self.model_save_path + ".old"
                 os.rename(self.model_save_path, old)
 
+            m = self.model.module if isinstance(self.model, DataParallel) else self.model
             data = {
-                'm_state_dict': self.model.state_dict(),
+                'm_state_dict': m.state_dict(),
                 'epoch': epoch,
 
                 'test_accuracy': accuracy,
@@ -226,3 +211,65 @@ class Logger:
         if self.log_file is not None:
             with open(self.log_file, 'a+') as log_file_h:
                 log_file_h.write(log_line + "\n")
+
+
+def get_device(enable_cuda=True, cuda_device_ids=None):
+    if not enable_cuda and cuda_device_ids is not None:
+        raise ValueError("Invalid arguments")
+
+    # We will return the first device in the list
+    first_id = cuda_device_ids
+    if first_id is not None and isinstance(first_id, list):
+        first_id = first_id[0]
+
+    # Prepare CPU fallback
+    device = torch.device('cpu')
+    device_name = "CPU"
+
+    # If CUDA is enabled and available
+    if enable_cuda and torch.cuda.is_available():
+        # Get device and its name
+        device = torch.device('cuda' + (':{}'.format(first_id) if first_id is not None else ''))
+        device_name = torch.cuda.get_device_name(device)
+    elif enable_cuda:
+        # CPU fallback
+        enable_cuda = False
+        print("CUDA not available, falling back on CPU")
+
+    # If only one device print its name
+    if cuda_device_ids is None or not enable_cuda:
+        print("Device: {}".format(device_name))
+    else:
+        # If multiple devices print all their names
+        for i in cuda_device_ids:
+            device_name = torch.cuda.get_device_name(torch.device('cuda:{}'.format(i)))
+            print("Device {}: {}".format(i, device_name))
+
+    return device
+
+
+def init_device_model(args, model: torch.nn.Module = None, model_file=None):
+    device = get_device(enable_cuda=not args.disable_cuda, cuda_device_ids=args.cuda_device)
+    batch_size = args.batch_size
+
+    last_epoch = 0
+    if model is not None:
+        if model_file is not None and os.path.exists(model_file):
+            print("Loaded")
+            data = torch.load(model_file, map_location=device)
+            model.load_state_dict(data['m_state_dict'])
+            last_epoch = data['epoch']
+
+        if torch.cuda.device_count() > 1:
+            model = DataParallel(model, args.cuda_device)
+
+        model = model.to(device)
+
+    return device, model, batch_size, last_epoch
+
+
+def add_device_options(parser: ArgumentParser):
+    device_opt_g = parser.add_argument_group(title="Device options")
+    device_opt_g.add_argument('--disable-cuda', action='store_true', help="Disable GPU acceleration")
+    device_opt_g.add_argument('--cuda-device', nargs='+', type=int, help="Select a specific GPU")
+    device_opt_g.add_argument('--batch-size', type=int, default=64, help="Batch size for training and testing")

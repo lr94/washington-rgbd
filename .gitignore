@@ -48,6 +48,7 @@ venv.bak/
 
 data/
 runs/
+models/
 *.pt
 *.pth
 *.log

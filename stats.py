@@ -13,7 +13,7 @@ def main():
 
     full_dataset = init_washington_datasets(args.dataset_root, train_split=args.dataset_split)
 
-    device = get_device(enable_cuda=not args.disable_cuda, cuda_device_id=args.cuda_device)
+    device, _, batch_size, _ = init_device_model(args)
 
     result = compute_avg_std(full_dataset, batch_size=args.batch_size, device=device)
 
@@ -66,17 +66,12 @@ def parse_args():
         formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=50, width=100)
     )
 
-    parser.add_argument('--batch-size', type=int, default=64, help="Batch size for mean/std "
-                                                                   "computation")
-
     dataset_opt_g = parser.add_argument_group(title="Dataset options")
-    dataset_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset (it must "
-                                                                         "contain the directory \"rgb-dataset\")")
+    dataset_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset")
+
     dataset_opt_g.add_argument('--dataset-split', help="Dataset split (.txt) to use")
 
-    device_opt_g = parser.add_argument_group(title="Device options")
-    device_opt_g.add_argument('--disable-cuda', action='store_true', help="Disable GPU acceleration")
-    device_opt_g.add_argument('--cuda-device', type=int, help="Select a specific GPU")
+    add_device_options(parser)
 
     return parser.parse_args()
 

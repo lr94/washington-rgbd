@@ -9,7 +9,7 @@ class WashingtonDataset(Dataset):
     Washington RGB-D <https://rgbd-dataset.cs.washington.edu>
     """
 
-    def __init__(self, root, split, image_type='rgb', transform=None):
+    def __init__(self, root, split, dataset_type='rgb', transform=None):
         self.root = root
 
         self.transform = transform
@@ -18,12 +18,12 @@ class WashingtonDataset(Dataset):
         self.class_ids_by_labels = {item: i for i, item in enumerate(self.class_labels)}
 
         suffix = None
-        if image_type == 'rgb':
+        if dataset_type == 'rgb':
             suffix = 'crop.png'
-        elif image_type == 'd':
+        elif dataset_type == 'normal++':
             suffix = 'depthcrop.png'
         else:
-            raise ValueError("Invalid argument type='{}'".format(image_type))
+            raise ValueError("Invalid argument type='{}'".format(dataset_type))
 
         with open(split, 'r') as f_split:
             self.file_paths = list(map(lambda line: line.strip().split(' ')[0] + suffix,
