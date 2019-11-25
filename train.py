@@ -6,18 +6,16 @@ import argparse
 
 from net import *
 from utils import *
-from loader import init_washington_datasets
 
 
 def main():
     args = parse_args()
 
-    training_set, test_set = init_washington_datasets(args.dataset_root, train_split=args.training_split,
-                                                      test_split=args.test_split, dataset_type=args.dataset_type)
+    training_set, test_set = parse_dataset_args(args)
 
-    net = init_network(len(training_set.class_labels), pretrained=True)
+    net = init_network(len(training_set.class_labels), pretrained=True, input_channels=training_set[0][0].shape[0])
 
-    device, net, batch_size, last_epoch = init_device_model(args, net, model_file=args.model_path)
+    device, workers, net, batch_size, last_epoch = parse_device_model_args(args, net, model_file=args.model_path)
 
     tb_exp = args.tensorboard_exp
     if tb_exp is not None:
@@ -26,13 +24,13 @@ def main():
                     model_save_path=args.model_path, model=net, log_file=args.log_file,
                     input_shape=training_set[0][0].shape)
 
-    train(net, training_set, test_set, args.epochs, batch_size=batch_size, lr=args.lr,
+    train(net, training_set, test_set, args.epochs, batch_size=batch_size, workers=workers, lr=args.lr,
           momentum=args.momentum, device=device, logger=logger, initial_epoch=last_epoch + 1,
           lr_policy_milestones=args.lr_policy_milestones, lr_policy_gamma=args.lr_policy_gamma)
 
 
-def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, batch_size=64, lr=0.01, momentum=0.0001,
-          device=None, logger=None, initial_epoch=1, lr_policy_milestones=None, lr_policy_gamma=0.1):
+def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, batch_size=64, workers=0, lr=0.01,
+          momentum=0.0001, device=None, logger=None, initial_epoch=1, lr_policy_milestones=None, lr_policy_gamma=0.1):
     if device is None:
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     model = model.to(device)
@@ -43,8 +41,8 @@ def train(model: nn.Module, training_set: Dataset, test_set: Dataset, epochs, ba
     if lr_policy_milestones is not None:
         scheduler = torch.optim.lr_scheduler.MultiStepLR(opt, milestones=lr_policy_milestones, gamma=lr_policy_gamma)
 
-    training_loader = DataLoader(training_set, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_set, batch_size=batch_size)
+    training_loader = DataLoader(training_set, batch_size=batch_size, shuffle=True, num_workers=workers // 2)
+    test_loader = DataLoader(test_set, batch_size=batch_size, num_workers=workers - training_loader.num_workers)
 
     test(model, test_loader, device=device, logger=logger)
 
@@ -125,10 +123,10 @@ def parse_args():
     )
 
     dataset_opt_g = parser.add_argument_group(title="Dataset options")
-    dataset_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset")
-    dataset_opt_g.add_argument('--dataset-type', default='rgb', choices=['rgb', 'normal++'])
+    dataset_opt_g.add_argument('--rgb-root', default=None, help="Folder containing the RGB dataset")
+    dataset_opt_g.add_argument('--d-root', default=None, help="Folder containing the Depth dataset")
 
-    dataset_opt_g.add_argument('--training-split', help="Dataset split (.txt) to use")
+    dataset_opt_g.add_argument('--train-split', help="Dataset split (.txt) to use")
     dataset_opt_g.add_argument('--test-split', help="Dataset split (.txt) to use for validiation")
 
     logging_opt_g = parser.add_argument_group(title="Logging options")

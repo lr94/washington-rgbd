@@ -1,5 +1,6 @@
 import time
 import os
+import sys
 from shutil import copyfile
 
 from argparse import ArgumentParser
@@ -7,6 +8,8 @@ from argparse import ArgumentParser
 from torch.hub import tqdm
 from torch.nn import Module, DataParallel
 import torch
+
+from loader import init_washington_datasets
 
 
 def stopwatch(function):
@@ -29,6 +32,7 @@ def stopwatch(function):
     return function_wrapper
 
 
+# TODO make more readable and simple
 class Logger:
     def __init__(self, use_tensorboard=False, tensorboard_logdir=None, model: Module = None,
                  model_save_path=None, log_file=None, input_shape=(1, 3, 224, 224)):
@@ -83,7 +87,7 @@ class Logger:
 
         # Init progress bar if not already initialized
         if self.pb is None:
-            self.pb = tqdm(total=samples, unit=" samples", leave=False)
+            self.pb = tqdm(total=samples, unit=" samples", leave=False, file=sys.stdout)
         # Update progress bar
         self.pb.update(batch_size)
 
@@ -119,7 +123,7 @@ class Logger:
         """
 
         if self.pb is None:
-            self.pb = tqdm(total=total, unit=" samples", leave=False)
+            self.pb = tqdm(total=total, unit=" samples", leave=False, file=sys.stdout)
 
         self.pb.update(processed - self.pb.n)
 
@@ -135,6 +139,7 @@ class Logger:
             self.pb.close()
             # self.pb.__exit__(None, None, None)
             self.pb = None
+            print('')
 
         accuracy = correct / total * 100.
         if self.tensorboard:
@@ -248,14 +253,30 @@ def get_device(enable_cuda=True, cuda_device_ids=None):
     return device
 
 
-def init_device_model(args, model: torch.nn.Module = None, model_file=None):
+def parse_device_model_args(args, model: torch.nn.Module = None, model_file=None):
+    """
+    Read command line arguments and initialize device and model
+
+    :param args:
+    :param model:
+    :param model_file:
+    :return:
+    """
+
+    workers = args.workers
+    if workers is None:
+        import multiprocessing
+        workers = multiprocessing.cpu_count() // 2
+
     device = get_device(enable_cuda=not args.disable_cuda, cuda_device_ids=args.cuda_device)
     batch_size = args.batch_size
+
+    print("Workers: {}".format(workers))
 
     last_epoch = 0
     if model is not None:
         if model_file is not None and os.path.exists(model_file):
-            print("Loaded")
+            print("Model loaded")
             data = torch.load(model_file, map_location=device)
             model.load_state_dict(data['m_state_dict'])
             last_epoch = data['epoch']
@@ -265,11 +286,39 @@ def init_device_model(args, model: torch.nn.Module = None, model_file=None):
 
         model = model.to(device)
 
-    return device, model, batch_size, last_epoch
+    return device, workers, model, batch_size, last_epoch
+
+
+def parse_dataset_args(args):
+    """
+    Read command line arguments and initialize datasets
+
+    :param args:
+    :return:
+    """
+
+    # Check which dataset roots are specified (depth, rgb or both)
+    type = None
+    if args.rgb_root is None and args.d_root is None:
+        raise ValueError("")
+    elif args.rgb_root is not None and args.d_root is None:
+        type = 'rgb'
+    elif args.rgb_root is None and args.d_root is not None:
+        type = 'd'
+    elif args.rgb_root is not None and args.d_root is not None:
+        type = 'rgbd'
+
+    print("Type: {}".format(type.upper()))
+
+    return init_washington_datasets(dataset_type=type, rgb_root=args.rgb_root, d_root=args.d_root,
+                                    train_split=args.train_split if hasattr(args, 'train_split') else None,
+                                    test_split=args.test_split if hasattr(args, 'test_split') else None)
 
 
 def add_device_options(parser: ArgumentParser):
     device_opt_g = parser.add_argument_group(title="Device options")
     device_opt_g.add_argument('--disable-cuda', action='store_true', help="Disable GPU acceleration")
     device_opt_g.add_argument('--cuda-device', nargs='+', type=int, help="Select a specific GPU")
+    device_opt_g.add_argument('--workers', type=int, default=None, help="Number of worker process loading the data. "
+                                                                        "Default: half of the available cores.")
     device_opt_g.add_argument('--batch-size', type=int, default=64, help="Batch size for training and testing")

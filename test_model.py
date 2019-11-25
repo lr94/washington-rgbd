@@ -4,7 +4,7 @@ import argparse
 from torch.utils.data import DataLoader
 
 from net import *
-from utils import Logger, add_device_options, init_device_model
+from utils import Logger, add_device_options, parse_device_model_args, parse_dataset_args
 from loader import init_washington_datasets
 from train import test
 
@@ -12,13 +12,13 @@ from train import test
 def main():
     args = parse_args()
 
-    test_set = init_washington_datasets(args.dataset_root, test_split=args.test_split)
+    test_set = parse_dataset_args(args)
 
-    net = init_network(len(test_set.class_labels), pretrained=False)
+    net = init_network(len(test_set.class_labels), pretrained=False, input_channels=test_set[0][0].shape[0])
 
-    device, net, batch_size, _ = init_device_model(args, net, model_file=args.model_path)
+    device, workers, net, batch_size, _ = parse_device_model_args(args, net, model_file=args.model_path)
 
-    test_loader = DataLoader(test_set, batch_size=args.batch_size)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, num_workers=workers)
 
     logger = Logger()
     test(net, test_loader, device, logger)
@@ -31,7 +31,8 @@ def parse_args():
     )
 
     dataset_opt_g = parser.add_argument_group(title="Dataset options")
-    dataset_opt_g.add_argument('--dataset-root', default='./data', help="Folder containing the dataset")
+    dataset_opt_g.add_argument('--rgb-root', default=None, help="Folder containing the RGB dataset")
+    dataset_opt_g.add_argument('--d-root', default=None, help="Folder containing the Depth dataset")
     dataset_opt_g.add_argument('--test-split', help="Dataset split (.txt) to use for validiation")
 
     add_device_options(parser)

@@ -1,52 +1,36 @@
-from torch.utils.data.dataset import Dataset
-from ._utils import *
+import warnings
 
-# TODO Rewrite documentation
+from torch.utils.data.dataset import Dataset
+
+from .WashingtonDataset3C import WashingtonDataset3C
 
 
 class WashingtonDataset(Dataset):
-    """
-    Washington RGB-D <https://rgbd-dataset.cs.washington.edu>
-    """
 
-    def __init__(self, root, split, dataset_type='rgb', transform=None):
-        self.root = root
+    def __init__(self, rgb_root, d_root, split, transform=None):
+        self.rgb_root = rgb_root
+        self.d_root = d_root
 
-        self.transform = transform
+        self.rgb_dataset = WashingtonDataset3C(rgb_root, split, dataset_type='rgb')
+        self.d_dataset = WashingtonDataset3C(d_root, split, dataset_type='d')
 
-        self.class_labels = get_directories(root)
-        self.class_ids_by_labels = {item: i for i, item in enumerate(self.class_labels)}
-
-        suffix = None
-        if dataset_type == 'rgb':
-            suffix = 'crop.png'
-        elif dataset_type == 'normal++':
-            suffix = 'depthcrop.png'
-        else:
-            raise ValueError("Invalid argument type='{}'".format(dataset_type))
-
-        with open(split, 'r') as f_split:
-            self.file_paths = list(map(lambda line: line.strip().split(' ')[0] + suffix,
-                                       f_split.readlines()))
+        self.class_labels = self.rgb_dataset.class_labels
+        self.class_ids_by_labels = self.rgb_dataset.class_ids_by_labels
 
     def __len__(self):
-        return len(self.file_paths)
+        dataset_size = len(self.rgb_dataset)
+        assert dataset_size == len(self.d_dataset)
+
+        return dataset_size
 
     def __getitem__(self, item):
-        """
-        :param item:                Index
-        :return:                    (image, class) if only one of load_rgbd and load_depth is true.
-                                        ((rgb_image, depth_image), class) if they are both true.
-        """
+        rgb_image, rgb_class_id = self.rgb_dataset[item]
+        d_image, d_class_id = self.d_dataset[item]
 
-        filepath = self.file_paths[item]
+        assert rgb_class_id == d_class_id
 
-        label = filepath.split('/')[0]
-        class_id = self.class_ids_by_labels[label]
+        result = rgb_image, d_image
+        if self._transform is not None:
+            result = self._transform(rgb_image, d_image)
 
-        image = load_image(join(self.root, filepath))
-        # Apply transform
-        if self.transform is not None:
-            image = self.transform(image)
-
-        return image, class_id
+        return result, rgb_class_id
